@@ -1,45 +1,46 @@
 import asyncio
-from datetime import datetime
 
-from app.config import get_settings
-from app.integrations.calcom import CalComClient
+from app.db.database import AsyncSessionLocal
+from app.services.rag_service import RAGService
+
+
+DEV_TENANT_ID = 1
+
+
+QUESTIONS = [
+    "How much does a website cost?",
+    "How long does a website take?",
+    "What is included in the Standard package?",
+    "Do you build websites for restaurants?",
+    "Do you offer hosting?",
+    "Do you provide AI automation services?",
+]
 
 
 async def main():
 
-    settings = get_settings()
+    async with AsyncSessionLocal() as db:
 
-    client = CalComClient()
+        rag = RAGService(db)
 
-    start = datetime.fromisoformat(
-        "2026-09-07T09:00:00+05:00"
-    )
+        for question in QUESTIONS:
 
-    end = datetime.fromisoformat(
-        "2026-09-07T09:30:00+05:00"
-    )
+            print("\n" + "=" * 80)
+            print(f"QUESTION: {question}")
+            print("=" * 80)
 
-    print("\n========== CAL.COM BOOKING TEST ==========")
+            try:
+                answer = await rag.answer(
+                    tenant_id=DEV_TENANT_ID,
+                    question=question,
+                )
 
-    print("Start:", start)
-    print("End:", end)
+                print("\nANSWER:")
+                print(answer)
 
-    response = await client.create_booking(
-        start=start,
-        end=end,
-        time_zone="Asia/Karachi",
-        attendee_name="AI Receptionist Test",
-        attendee_email="your-real-email@example.com",
-        attendee_phone="+92-300-0000000",
-        event_type_id=int(
-            settings.cal_event_type_id
-        ),
-    )
-
-    print("\nResponse:")
-    print(response)
-
-    print("\n===========================================")
+            except Exception as exc:
+                print("\nRAG ERROR:")
+                print(repr(exc))
 
 
 if __name__ == "__main__":

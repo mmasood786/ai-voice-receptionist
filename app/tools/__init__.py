@@ -6,6 +6,7 @@ from app.services.customer_service import CustomerService
 from app.services.lead_service import LeadService
 from app.services.availability_service import AvailabilityService
 from app.services.booking_service import BookingService
+from app.services.knowledge_search_service import KnowledgeSearchService
 
 from app.config import get_settings
 from app.agents.context import AgentContext
@@ -231,7 +232,6 @@ async def update_lead(
             },
         }
         
-
 @function_tool
 async def check_availability(
     ctx: RunContextWrapper[AgentContext],
@@ -585,3 +585,95 @@ async def qualify_lead(
                 "Please try again or offer human assistance."
             ),
         }
+        
+        
+@function_tool
+async def search_knowledge(
+    ctx: RunContextWrapper[AgentContext],
+    query: str,
+) -> str:
+    """
+        MANDATORY TOOL FOR BUSINESS INFORMATION.
+
+        Use this tool whenever the customer asks about:
+        - services
+        - pricing
+        - packages
+        - website costs
+        - timelines
+        - process
+        - FAQs
+        - policies
+        - what the business offers
+
+        Do not answer these questions from memory.
+        Search this tool first.
+    """
+    
+    print("\n" + "=" * 60)
+    print("SEARCH_KNOWLEDGE CALLED")
+    print("QUERY:", query)
+    print("TENANT ID:", ctx.context.tenant_id)
+    print("=" * 60)
+
+    try:
+        print("STEP 1: Opening database session...")
+
+        async with AsyncSessionLocal() as db:
+
+            print("STEP 1 OK: Database session opened")
+
+            print("STEP 2: Creating KnowledgeSearchService...")
+
+            service = KnowledgeSearchService(db)
+
+            print("STEP 2 OK: Service created")
+
+            print("STEP 3: Searching knowledge...")
+
+            results = await service.search(
+                tenant_id=ctx.context.tenant_id,
+                query=query,
+                limit=4,
+            )
+
+            print("STEP 3 OK: Knowledge search completed")
+            print("RESULT COUNT:", len(results))
+
+        if not results:
+            print("NO RESULTS FOUND")
+            return "No relevant business information was found."
+
+        print("STEP 4: Formatting results...")
+
+        sections = []
+
+        for result in results:
+            sections.append(
+                f"Knowledge:\n{result['content']}"
+            )
+
+        response = "\n\n".join(sections)
+
+        print("STEP 4 OK")
+        print("KNOWLEDGE RESULT:")
+        print(response)
+        print("=" * 60)
+
+        return response
+
+    except Exception as e:
+
+        print("\n" + "!" * 60)
+        print("SEARCH_KNOWLEDGE ERROR")
+        print("ERROR TYPE:", type(e).__name__)
+        print("ERROR:", str(e))
+        print("!" * 60)
+
+        import traceback
+        traceback.print_exc()
+
+        return (
+            "I was unable to retrieve the business information right now. "
+            "Please offer human assistance."
+        )

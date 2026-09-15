@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     twilio_account_sid: str
     twilio_auth_token: str
     twilio_phone_number: str
+    
+    resend_api_key: str
+    resend_from_email: str
+    resend_from_name: str = "Demo Service Company"
 
     model_config = SettingsConfigDict(
         env_file=".env",

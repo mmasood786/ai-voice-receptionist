@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -136,3 +138,48 @@ class LeadRepository:
         await self.db.flush()
 
         return lead
+    
+    async def get_due_follow_ups(
+        self,
+        *,
+        tenant_id: int,
+        now: datetime | None = None,
+        limit: int = 50,
+    ) -> list[Lead]:
+
+        if now is None:
+            now = datetime.now(timezone.utc)
+
+        result = await self.db.execute(
+            select(Lead)
+            .where(
+                Lead.tenant_id == tenant_id,
+                Lead.next_follow_up_at.is_not(None),
+                Lead.next_follow_up_at <= now,
+                Lead.follow_up_status == "scheduled",
+            )
+            .order_by(Lead.next_follow_up_at.asc())
+            .limit(limit)
+        )
+        
+        print('get_due_follow_ups :=============> ',result)
+
+        return list(result.scalars().all())
+
+    async def get_by_email(
+        self,
+        *,
+        tenant_id: int,
+        email: str,
+    ) -> Lead | None:
+
+        result = await self.db.execute(
+            select(Lead)
+            .where(
+                Lead.tenant_id == tenant_id,
+                Lead.email == email,
+            )
+            .limit(1)
+        )
+
+        return result.scalar_one_or_none()

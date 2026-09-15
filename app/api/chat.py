@@ -9,6 +9,7 @@ from app.agents.receptionist import receptionist_agent
 from app.db.database import get_db
 from app.services.conversation_service import ConversationService
 from app.services.message_service import MessageService
+from app.services.token_usage_service import get_token_usage
 
 router = APIRouter(
     prefix="/chat",
@@ -122,7 +123,10 @@ async def chat(
     )
 
     response = result.final_output
-    
+    report = get_token_usage(
+        result,
+        token_budget=100_000,
+    )
 
     # ---------------------------------
     # 5. Save user message

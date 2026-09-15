@@ -11,13 +11,13 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
 
 from app.db.database import Base
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
 
 class Tenant(Base):
     __tablename__ = "tenants"
@@ -72,7 +72,15 @@ class Tenant(Base):
         back_populates="tenant",
         cascade="all, delete-orphan",
     )
-
+    
+    reviews: Mapped[list["Review"]] = relationship(
+        back_populates="tenant"
+    )
+    
+    knowledge_documents: Mapped[list["KnowledgeDocument"]] = relationship(
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+    )
 
 class Customer(Base):
     __tablename__ = "customers"
@@ -135,7 +143,10 @@ class Customer(Base):
         "Appointment",
         back_populates="customer",
     )
-
+    
+    reviews: Mapped[list["Review"]] = relationship(
+        back_populates="customer"
+    )
 
 class Lead(Base):
     __tablename__ = "leads"
@@ -230,7 +241,34 @@ class Lead(Base):
         String(100),
         nullable=True,
     )
+    
+    # =========================
+    # FOLLOW-UP
+    # =========================
 
+    next_follow_up_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+
+    last_contacted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    follow_up_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    follow_up_status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+    )
 
 class Conversation(Base):
     __tablename__ = "conversations"
@@ -297,7 +335,6 @@ class Conversation(Base):
         back_populates="conversation",
     )
 
-
 class Message(Base):
     __tablename__ = "messages"
 
@@ -331,7 +368,6 @@ class Message(Base):
     conversation: Mapped["Conversation"] = relationship(
         back_populates="messages",
     )
-
 
 class Appointment(Base):
     __tablename__ = "appointments"
@@ -430,4 +466,205 @@ class Appointment(Base):
     conversation: Mapped["Conversation | None"] = relationship(
         "Conversation",
         back_populates="appointments",
+    )
+    
+    review: Mapped["Review | None"] = relationship(
+        back_populates="appointment",
+        uselist=False,
+    )
+
+class Review(Base):
+    __tablename__ = "reviews"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "appointment_id",
+            name="uq_reviews_tenant_appointment",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id"),
+        nullable=False,
+        index=True,
+    )
+
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id"),
+        nullable=False,
+        index=True,
+    )
+
+    appointment_id: Mapped[int] = mapped_column(
+        ForeignKey("appointments.id"),
+        nullable=False,
+        index=True,
+    )
+
+    rating: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    feedback: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+    )
+
+    review_request_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    responded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    tenant: Mapped["Tenant"] = relationship(
+        back_populates="reviews"
+    )
+
+    customer: Mapped["Customer"] = relationship(
+        back_populates="reviews"
+    )
+
+    appointment: Mapped["Appointment"] = relationship(
+        back_populates="review"
+    )
+    
+    review_request_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+    
+class KnowledgeDocument(Base):
+    __tablename__ = "knowledge_documents"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id"),
+        nullable=False,
+        index=True,
+    )
+
+    title: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    source: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+
+    content: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    metadata_json: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    tenant: Mapped["Tenant"] = relationship(
+        back_populates="knowledge_documents"
+    )
+
+    chunks: Mapped[list["KnowledgeChunk"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+
+class KnowledgeChunk(Base):
+    __tablename__ = "knowledge_chunks"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id"),
+        nullable=False,
+        index=True,
+    )
+
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("knowledge_documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    content: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    embedding: Mapped[list[float] | None] = mapped_column(
+        Vector(384),
+        nullable=True,
+    )
+
+    metadata_json: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    document: Mapped["KnowledgeDocument"] = relationship(
+        back_populates="chunks"
     )
