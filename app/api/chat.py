@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,10 +6,12 @@ from agents import Runner
 
 from app.agents.context import AgentContext
 from app.agents.receptionist import receptionist_agent
+from app.api.dependencies.tenant import get_current_tenant_id
 from app.db.database import get_db
 from app.services.conversation_service import ConversationService
 from app.services.message_service import MessageService
 from app.services.token_usage_service import get_token_usage
+
 
 router = APIRouter(
     prefix="/chat",
@@ -18,11 +20,6 @@ router = APIRouter(
 
 
 class ChatRequest(BaseModel):
-
-    tenant_id: int = Field(
-        ...,
-        description="Business/tenant ID",
-    )
 
     message: str = Field(
         ...,
@@ -60,6 +57,7 @@ class ChatResponse(BaseModel):
 async def chat(
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),
+    tenant_id: int = Depends(get_current_tenant_id),
 ):
     conversation_service = ConversationService(db)
     message_service = MessageService(db)
@@ -69,7 +67,7 @@ async def chat(
     # ---------------------------------
 
     conversation = await conversation_service.get_or_create(
-        tenant_id=request.tenant_id,
+        tenant_id=tenant_id,
         conversation_id=request.conversation_id,
         customer_id=request.customer_id,
         channel=request.channel,
@@ -111,7 +109,7 @@ async def chat(
     # ---------------------------------
 
     agent_context = AgentContext(
-        tenant_id=request.tenant_id,
+        tenant_id=tenant_id,
         conversation_id=conversation.id,
         customer_id=conversation.customer_id,
     )
@@ -123,6 +121,7 @@ async def chat(
     )
 
     response = result.final_output
+
     report = get_token_usage(
         result,
         token_budget=100_000,

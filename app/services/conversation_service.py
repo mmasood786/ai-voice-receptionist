@@ -2,12 +2,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Conversation
 from app.repositories.conversations import ConversationRepository
+from app.repositories.customers import CustomerRepository
 
 
 class ConversationService:
 
     def __init__(self, db: AsyncSession):
         self.repository = ConversationRepository(db)
+        self.customer_repository = CustomerRepository(db)
 
     async def get_or_create(
         self,
@@ -31,6 +33,18 @@ class ConversationService:
                 )
 
             return conversation
+
+        if customer_id is not None:
+            customer = await self.customer_repository.get_by_id(
+                tenant_id=tenant_id,
+                customer_id=customer_id,
+            )
+
+            if customer is None:
+                raise ValueError(
+                    f"Customer {customer_id} not found "
+                    f"for tenant {tenant_id}"
+                )
 
         return await self.repository.create(
             tenant_id=tenant_id,

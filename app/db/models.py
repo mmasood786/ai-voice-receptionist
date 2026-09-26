@@ -81,6 +81,12 @@ class Tenant(Base):
         back_populates="tenant",
         cascade="all, delete-orphan",
     )
+    
+    memberships: Mapped[list["TenantMembership"]] = relationship(
+        "TenantMembership",
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+    )
 
 class Customer(Base):
     __tablename__ = "customers"
@@ -568,6 +574,14 @@ class Review(Base):
     
 class KnowledgeDocument(Base):
     __tablename__ = "knowledge_documents"
+    
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "source",
+            name="uq_knowledge_documents_tenant_source",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -667,4 +681,113 @@ class KnowledgeChunk(Base):
 
     document: Mapped["KnowledgeDocument"] = relationship(
         back_populates="chunks"
+    )
+    
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    email: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    password_hash: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    full_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    memberships: Mapped[list["TenantMembership"]] = relationship(
+        "TenantMembership",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    
+class TenantMembership(Base):
+    __tablename__ = "tenant_memberships"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "tenant_id",
+            name="uq_tenant_memberships_user_tenant",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    role: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="owner",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    user: Mapped["User"] = relationship(
+        "User",
+        back_populates="memberships",
+    )
+
+    tenant: Mapped["Tenant"] = relationship(
+        "Tenant",
+        back_populates="memberships",
     )
