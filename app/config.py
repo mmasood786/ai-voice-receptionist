@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     
     vapi_webhook_secret: str
+    vapi_private_api_key: str
+    vapi_assistant_id: str
+    vapi_server_url: str
+    vapi_phone_number_id: str
     
     model_config = SettingsConfigDict(
         env_file=".env",

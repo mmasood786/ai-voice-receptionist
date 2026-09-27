@@ -3,9 +3,11 @@ import secrets
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
 
-from app.config import settings
+from app.config import get_settings
 
 router = APIRouter(prefix="/webhooks/vapi", tags=["Vapi"])
+
+settings = get_settings()
 
 
 class VapiWebhookRequest(BaseModel):
