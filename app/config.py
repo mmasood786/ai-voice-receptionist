@@ -26,9 +26,9 @@ class Settings(BaseSettings):
     cal_api_version: str = "2026-02-25"
     cal_event_type_id: int
     
-    twilio_account_sid: str
-    twilio_auth_token: str
-    twilio_phone_number: str
+    # twilio_account_sid: str
+    # twilio_auth_token: str
+    # twilio_phone_number: str
     
     resend_api_key: str
     resend_from_email: str

@@ -8,6 +8,7 @@ all-MiniLM-L6-v2   (384)
 
 
 
+
 TRUNCATE TABLE
     messages,
     conversations,
