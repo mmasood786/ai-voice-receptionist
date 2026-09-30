@@ -29,8 +29,8 @@ class CalComClient:
     async def create_booking(
         self,
         *,
-        start: datetime,
-        end: datetime,
+        start_time: datetime,
+        end_time: datetime,
         time_zone: str,
         attendee_name: str,
         attendee_email: str,
@@ -38,13 +38,13 @@ class CalComClient:
         attendee_phone: str | None = None,
     ) -> dict:
 
-        if start.tzinfo is None:
+        if start_time.tzinfo is None:
             raise ValueError("start must be timezone-aware")
 
-        if end.tzinfo is None:
+        if end_time.tzinfo is None:
             raise ValueError("end must be timezone-aware")
 
-        if end <= start:
+        if end_time <= start_time:
             raise ValueError("end must be after start")
 
         event_type_id = (
@@ -54,7 +54,7 @@ class CalComClient:
         )
 
         start_utc = (
-            start.astimezone(timezone.utc)
+            start_time.astimezone(timezone.utc)
             .isoformat()
             .replace("+00:00", "Z")
         )
@@ -106,20 +106,20 @@ class CalComClient:
 
     async def get_slots(
     self,
-    start: datetime,
-    end: datetime,
+    start_time: datetime,
+    end_time: datetime,
     time_zone: str,
     event_type_id: int | None = None,
     duration: int | None = None,
     ) -> dict:
 
-        if start.tzinfo is None:
+        if start_time.tzinfo is None:
             raise ValueError("start must be timezone-aware")
 
-        if end.tzinfo is None:
+        if end_time.tzinfo is None:
             raise ValueError("end must be timezone-aware")
 
-        if end <= start:
+        if end_time <= start_time:
             raise ValueError("end must be after start")
 
         try:
@@ -138,13 +138,13 @@ class CalComClient:
         params = {
             "eventTypeId": event_type_id,
             "start": (
-                start
+                start_time
                 .astimezone(timezone.utc)
                 .isoformat()
                 .replace("+00:00", "Z")
             ),
             "end": (
-                end
+                end_time
                 .astimezone(timezone.utc)
                 .isoformat()
                 .replace("+00:00", "Z")
@@ -221,3 +221,53 @@ class CalComClient:
         response.raise_for_status()
 
         return response.json()
+      
+    async def cancel_booking(
+        self,
+        *,
+        booking_uid: str,
+        cancellation_reason: str | None = None,
+    ) -> dict:
+
+        if not booking_uid:
+            raise ValueError("booking_uid is required")
+
+        payload = {}
+
+        if cancellation_reason:
+            payload["cancellationReason"] = cancellation_reason
+
+        headers = {
+            **self.auth_headers,
+            # "cal-api-version": self.BOOKINGS_API_VERSION,
+            "cal-api-version": settings.cal_api_version,
+            "Content-Type": "application/json",
+        }
+
+        print("\n========== CAL.COM CANCEL BOOKING ==========")
+        print("Booking UID:", booking_uid)
+        print("BOOKING API Version:", self.BOOKINGS_API_VERSION)
+        print("CAL API Version:", settings.cal_api_version)
+        print("Payload:", payload)
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{self.BASE_URL}/bookings/{booking_uid}/cancel",
+                headers=headers,
+                json=payload,
+            )
+
+        print("Status:", response.status_code)
+        print("Response:", response.text)
+        print("============================================\n")
+
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"Cal.com cancellation failed "
+                f"({response.status_code}): {response.text}"
+            )
+
+        return response.json()
+    
+    
+    

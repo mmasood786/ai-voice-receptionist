@@ -10,8 +10,10 @@ from app.services.knowledge_search_service import KnowledgeSearchService
 
 from app.config import get_settings
 from app.agents.context import AgentContext
-from app.db.models import Conversation
 from zoneinfo import ZoneInfo
+from app.agents.escalation import escalate_to_human
+from app.services.conversation_service import ConversationService
+
 # Temporary development tenant.
 # Later this will come from authentication/runtime context.
 DEV_TENANT_ID = 1
@@ -48,10 +50,19 @@ async def find_customer(
         # ----------------------------------
 
         if status == "exact_match":
-
             customer = result["customer"]
 
             ctx.context.customer_id = customer.id
+
+            conversation_service = ConversationService(db)
+
+            await conversation_service.set_customer(
+                tenant_id=tenant_id,
+                conversation_id=ctx.context.conversation_id,
+                customer_id=customer.id,
+            )
+
+            await db.commit()
 
             return {
                 "success": True,
@@ -127,9 +138,17 @@ async def create_customer(
             email=email,
         )
 
-        await db.commit()
-
         ctx.context.customer_id = customer.id
+
+        conversation_service = ConversationService(db)
+
+        await conversation_service.set_customer(
+            tenant_id=tenant_id,
+            conversation_id=ctx.context.conversation_id,
+            customer_id=customer.id,
+        )
+
+        await db.commit()
 
         return {
             "success": True,
@@ -145,13 +164,23 @@ async def create_customer(
 @function_tool
 async def get_lead(
     ctx: RunContextWrapper[AgentContext],
-    lead_id: int,
 ) -> dict:
     """
-    Retrieve a lead belonging to the current tenant.
+    Retrieve the lead associated with the current conversation.
     """
 
     tenant_id = ctx.context.tenant_id
+    lead_id = ctx.context.lead_id
+
+    # -----------------------------------------
+    # Validate context
+    # -----------------------------------------
+    if lead_id is None:
+        return {
+            "success": False,
+            "error": "lead_context_missing",
+            "message": "No lead is associated with this conversation.",
+        }
 
     async with AsyncSessionLocal() as db:
         service = LeadService(db)
@@ -178,6 +207,10 @@ async def get_lead(
                 "email": lead.email,
                 "status": lead.status,
                 "lead_score": lead.lead_score,
+                "service_interest": lead.service_interest,
+                "urgency": lead.urgency,
+                "budget": lead.budget,
+                "timeline": lead.timeline,
                 "notes": lead.notes,
             },
         }
@@ -185,7 +218,6 @@ async def get_lead(
 @function_tool
 async def update_lead(
     ctx: RunContextWrapper[AgentContext],
-    lead_id: int,
     name: str | None = None,
     phone: str | None = None,
     email: str | None = None,
@@ -193,10 +225,21 @@ async def update_lead(
     notes: str | None = None,
 ) -> dict:
     """
-    Update a CRM lead belonging to the current tenant.
+    Update the lead associated with the current conversation.
     """
 
     tenant_id = ctx.context.tenant_id
+    lead_id = ctx.context.lead_id
+
+    # -----------------------------------------
+    # Validate context
+    # -----------------------------------------
+    if lead_id is None:
+        return {
+            "success": False,
+            "error": "lead_context_missing",
+            "message": "No lead is associated with this conversation.",
+        }
 
     async with AsyncSessionLocal() as db:
         service = LeadService(db)
@@ -214,13 +257,15 @@ async def update_lead(
         if not lead:
             return {
                 "success": False,
-                "error": "Lead not found",
+                "error": "lead_not_found",
+                "message": "The lead could not be found.",
             }
 
         await db.commit()
 
         return {
             "success": True,
+            "message": "Lead updated successfully.",
             "lead": {
                 "id": lead.id,
                 "name": lead.name,
@@ -235,8 +280,8 @@ async def update_lead(
 @function_tool
 async def check_availability(
     ctx: RunContextWrapper[AgentContext],
-    start: str,
-    end: str,
+    start_time: str,
+    end_time: str,
     time_zone: str = "Asia/Karachi",
 ) -> dict:
     """
@@ -251,11 +296,11 @@ async def check_availability(
 
         # Parse datetime
         start_dt = datetime.fromisoformat(
-            start.replace("Z", "+00:00")
+            start_time.replace("Z", "+00:00")
         )
 
         end_dt = datetime.fromisoformat(
-            end.replace("Z", "+00:00")
+            end_time.replace("Z", "+00:00")
         )
 
         if start_dt.tzinfo is None:
@@ -291,8 +336,8 @@ async def check_availability(
         service = AvailabilityService()
 
         slots = await service.get_available_slots(
-            start=start_dt,
-            end=end_dt,
+            start_time=start_dt,
+            end_time=end_dt,
             time_zone=time_zone,
         )
 
@@ -318,8 +363,8 @@ async def check_availability(
 @function_tool
 async def create_booking(
     ctx: RunContextWrapper[AgentContext],
-    start: str,
-    end: str,
+    start_time: str,
+    end_time: str,
     customer_name: str,
     customer_email: str | None,
     customer_phone: str | None,
@@ -332,11 +377,11 @@ async def create_booking(
 
     try:
         start_dt = datetime.fromisoformat(
-            start.replace("Z", "+00:00")
+            start_time.replace("Z", "+00:00")
         )
 
         end_dt = datetime.fromisoformat(
-            end.replace("Z", "+00:00")
+            end_time.replace("Z", "+00:00")
         )
 
         if start_dt.tzinfo is None:
@@ -391,6 +436,11 @@ async def create_booking(
 
                 cal_event_type_id=int(settings.cal_event_type_id),
             )
+            
+            
+            # Handle booking conflict or other service-level failure
+            if result.get("success") is False:
+                return result
 
             await db.commit()
 
@@ -438,6 +488,17 @@ async def create_lead(
 
     tenant_id = ctx.context.tenant_id
     customer_id = ctx.context.customer_id
+    conversation_id = ctx.context.conversation_id
+
+    if customer_id is None:
+        return {
+            "success": False,
+            "error": "customer_context_missing",
+            "message": (
+                "A customer must be identified "
+                "before creating a lead."
+            ),
+        }
 
     async with AsyncSessionLocal() as db:
 
@@ -450,6 +511,15 @@ async def create_lead(
             phone=phone,
             email=email,
             notes=notes,
+        )
+
+        # Persist lead ID on the conversation
+        conversation_service = ConversationService(db)
+
+        await conversation_service.set_lead(
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            lead_id=lead.id,
         )
 
         await db.commit()
@@ -482,20 +552,40 @@ async def qualify_lead(
     """
 
     tenant_id = ctx.context.tenant_id
+    conversation_id = ctx.context.conversation_id
     lead_id = ctx.context.lead_id
 
     # -----------------------------------------
-    # Validate context
+    # Load lead context if missing
     # -----------------------------------------
-    if lead_id is None:
-        return {
-            "success": False,
-            "error": "lead_context_missing",
-            "message": "No lead is associated with this conversation.",
-        }
-
     try:
         async with AsyncSessionLocal() as db:
+
+            # If this AgentContext does not have lead_id,
+            # restore it from the conversation.
+            if lead_id is None:
+                conversation_service = ConversationService(db)
+
+                conversation = await conversation_service.get_by_id(
+                    tenant_id=tenant_id,
+                    conversation_id=conversation_id,
+                )
+
+                if conversation is not None:
+                    lead_id = conversation.lead_id
+                    ctx.context.lead_id = lead_id
+
+            # -----------------------------------------
+            # Validate context
+            # -----------------------------------------
+            if lead_id is None:
+                return {
+                    "success": False,
+                    "error": "lead_context_missing",
+                    "message": (
+                        "No lead is associated with this conversation."
+                    ),
+                }
 
             service = LeadService(db)
 
@@ -520,28 +610,6 @@ async def qualify_lead(
                     "error": "lead_not_found",
                     "message": "The lead could not be found.",
                 }
-
-            # -----------------------------------------
-            # Debug
-            # -----------------------------------------
-            print("\n========== QUALIFY LEAD TOOL ==========")
-            print("TENANT ID:", tenant_id)
-            print("CONVERSATION ID:", ctx.context.conversation_id)
-            print("CUSTOMER ID:", ctx.context.customer_id)
-            print("LEAD ID:", lead_id)
-            print("SERVICE:", service_interest)
-            print("URGENCY:", urgency)
-            print("BUDGET:", budget)
-            print("TIMELINE:", timeline)
-
-            print("\n========== BEFORE COMMIT ==========")
-            print("lead.id:", lead.id)
-            print("service_interest:", lead.service_interest)
-            print("urgency:", lead.urgency)
-            print("budget:", lead.budget)
-            print("timeline:", lead.timeline)
-            print("lead_score:", lead.lead_score)
-            print("status:", lead.status)
 
             # -----------------------------------------
             # Commit transaction
@@ -585,8 +653,7 @@ async def qualify_lead(
                 "Please try again or offer human assistance."
             ),
         }
-        
-        
+           
 @function_tool
 async def search_knowledge(
     ctx: RunContextWrapper[AgentContext],
@@ -677,3 +744,113 @@ async def search_knowledge(
             "I was unable to retrieve the business information right now. "
             "Please offer human assistance."
         )
+        
+@function_tool
+async def cancel_booking(
+    ctx: RunContextWrapper[AgentContext],
+    cancellation_reason: str | None = None,
+) -> dict:
+    """
+    Cancel the customer's existing appointment.
+
+    Use this tool when the customer explicitly asks to cancel
+    an appointment.
+
+    The appointment is identified internally using the current
+    customer and conversation context. Never ask the customer
+    for internal appointment IDs or Cal.com booking IDs.
+    """
+
+    context = ctx.context
+
+    if not context.customer_id:
+        return {
+            "success": False,
+            "error": "customer_context_missing",
+            "message": "I need to identify the customer before cancelling an appointment.",
+        }
+    
+    async with AsyncSessionLocal() as db:
+
+        service = BookingService(db)
+
+        result = await service.cancel_booking(
+            tenant_id=context.tenant_id,
+            customer_id=context.customer_id,
+            conversation_id=context.conversation_id,
+            cancellation_reason=cancellation_reason,
+            time_zone=context.time_zone,
+        )
+
+        return result    
+        
+@function_tool
+async def reschedule_booking(
+    ctx: RunContextWrapper[AgentContext],
+    start_time: str,
+    end_time: str,
+) -> dict:
+    """
+    Reschedule the customer's existing appointment.
+
+    Use this when the customer explicitly wants to change
+    the date or time of an existing appointment.
+
+    Never ask the customer for appointment IDs, Cal.com
+    booking IDs, booking UIDs, tenant IDs, or database IDs.
+    """
+
+    context = ctx.context
+
+    if not context.customer_id:
+        return {
+            "success": False,
+            "error": "customer_context_missing",
+            "message": (
+                "I need to identify the customer before "
+                "rescheduling the appointment."
+            ),
+        }
+
+    try:
+        parsed_start = datetime.fromisoformat(start_time)
+        parsed_end = datetime.fromisoformat(end_time)
+
+    except ValueError:
+        return {
+            "success": False,
+            "error": "invalid_datetime",
+            "message": (
+                "The requested appointment date or time "
+                "could not be understood."
+            ),
+        }
+
+    async with AsyncSessionLocal() as db:
+        service = BookingService(db)
+
+        return await service.reschedule_booking(
+            tenant_id=context.tenant_id,
+            customer_id=context.customer_id,
+            conversation_id=context.conversation_id,
+            start_time=parsed_start,
+            end_time=parsed_end,
+            time_zone=context.time_zone or "Asia/Karachi",
+        )
+        
+        
+        
+tools = [
+    find_customer,
+    create_customer,
+    create_lead,
+    qualify_lead,
+    get_lead,
+    update_lead,
+    escalate_to_human,
+    check_availability,
+    create_booking,
+    search_knowledge,
+    cancel_booking,
+    reschedule_booking
+]

@@ -10,15 +10,15 @@ class AvailabilityService:
 
     async def get_available_slots(
         self,
-        start: datetime,
-        end: datetime,
+        start_time: datetime,
+        end_time: datetime,
         time_zone: str,
         event_type_id: int | None = None,
     ) -> list[dict]:
 
         response = await self.calcom.get_slots(
-            start=start,
-            end=end,
+            start_time=start_time,
+            end_time=end_time,
             time_zone=time_zone,
             event_type_id=event_type_id,
         )

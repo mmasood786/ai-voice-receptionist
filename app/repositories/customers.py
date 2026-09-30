@@ -101,3 +101,6 @@ class CustomerRepository:
         await self.db.flush()
 
         return customer
+    
+    
+    

@@ -294,6 +294,11 @@ class Conversation(Base):
         ForeignKey("customers.id"),
         nullable=True,
     )
+    
+    lead_id: Mapped[int | None] = mapped_column(
+        ForeignKey("leads.id"),
+        nullable=True,
+    )
 
     channel: Mapped[str] = mapped_column(
         String(50),
@@ -340,6 +345,13 @@ class Conversation(Base):
         "Appointment",
         back_populates="conversation",
     )
+    
+    vapi_call_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+        unique=True,
+    )
 
 class Message(Base):
     __tablename__ = "messages"
@@ -377,6 +389,13 @@ class Message(Base):
 
 class Appointment(Base):
     __tablename__ = "appointments"
+    
+    __table_args__ = (
+        UniqueConstraint(
+            "cal_booking_id",
+            name="uq_appointments_cal_booking_id",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -402,6 +421,12 @@ class Appointment(Base):
     cal_booking_id: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
+    )
+    
+    cal_booking_uid: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        unique=True,
     )
 
     cal_event_type_id: Mapped[int | None] = mapped_column(
